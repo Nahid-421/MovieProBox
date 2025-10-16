@@ -1,3 +1,4 @@
 Flask
-Flask-PyMongo
-dnspython
+flask-pymongo
+pymongo
+python-dotenv
