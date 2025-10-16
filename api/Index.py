@@ -6,7 +6,7 @@ app = Flask(__name__)
 app.secret_key = "your_secret_key_here"
 
 # ---------------- MongoDB Setup ----------------
-app.config["MONGO_URI"] = "mongodb+srv://<username>:<password>@cluster0.mongodb.net/moviestreaming?retryWrites=true&w=majority"
+app.config["MONGO_URI"] = "mongodb+srv://heraneg660:heraneg660@cluster0.whyvk.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 mongo = PyMongo(app)
 
 # ---------------- HTML Templates ----------------
