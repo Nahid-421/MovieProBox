@@ -3,32 +3,39 @@
 from flask import Flask, render_template_string, request, redirect, url_for, session
 from flask_pymongo import PyMongo
 from bson.objectid import ObjectId
-import os # Environment variables লোড করার জন্য
+import os 
+from datetime import timedelta
 
 # ----------------- Configuration & Security Setup -----------------
 
 app = Flask(__name__)
 
-# IMPORTANT: Load sensitive configuration from Vercel Environment Variables
-app.secret_key = os.environ.get("SECRET_KEY", "THIS_IS_A_FALLBACK_DEV_KEY")
-
-# MongoDB Setup
-mongo_uri = os.environ.get("MONGO_URI") 
-if not mongo_uri:
-    # If not set in environment (DEV ONLY), use hardcoded URI (DANGER IN PROD)
-    mongo_uri = "mongodb+srv://mewayo8672:mewayo8672@cluster0.ozhvczp.mongodb.net/moviestreamingdb?retryWrites=true&w=majority&appName=Cluster0"
-    
-app.config["MONGO_URI"] = mongo_uri
-mongo = PyMongo(app)
+# Load sensitive data from Environment Variables
+# Vercel Environment Variable: SECRET_KEY
+app.secret_key = os.environ.get("SECRET_KEY", "a_very_long_secure_fallback_key_for_dev")
+app.permanent_session_lifetime = timedelta(minutes=30) # Session timeout set
 
 # Admin Credentials (Loaded from Vercel Env Vars)
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "admin123")
 
+# MongoDB Setup
+# Vercel Environment Variable: MONGO_URI
+mongo_uri = os.environ.get("MONGO_URI") 
+
+if not mongo_uri:
+    # WARNING: THIS URI MUST BE REPLACED WITH YOUR CORRECT URI INCLUDING DB NAME
+    mongo_uri = "mongodb+srv://mewayo8672:mewayo8672@cluster0.ozhvczp.mongodb.net/moviestreamingdb?retryWrites=true&w=majority&appName=Cluster0"
+    
+app.config["MONGO_URI"] = mongo_uri
+try:
+    mongo = PyMongo(app)
+except Exception as e:
+    print(f"Error connecting to MongoDB: {e}")
+    mongo = None # Handle connection failure gracefully
 
 # ---------------- HTML Templates ----------------
-# NOTE: The templates are kept within the Python file for simplicity, 
-# as using separate templates folders requires additional Vercel configuration.
+# NOTE: Templates are kept inline (render_template_string)
 
 index_html = """
 <!DOCTYPE html>
@@ -74,7 +81,6 @@ player_html = """
 <title>{{ movie.title }}</title>
 <style>
 body{margin:0;background:#000;color:white;font-family:Arial,sans-serif;text-align:center;}
-/* Optimized for larger screens */
 .player iframe{width:100%;height:70vh;min-height:350px;border:none;}
 .btn{display:inline-block;margin:10px;padding:10px 20px;background:#ff4444;color:white;text-decoration:none;border-radius:8px;}
 .ad-box{margin-top:10px;padding:10px;background:#111;color:#bbb;font-size:14px;}
@@ -161,18 +167,24 @@ a{color:#ff5555;text-decoration:none;margin-left:10px;}
 # ----------------- Routes -----------------
 @app.route('/')
 def home():
+    if mongo is None:
+        return "Database not available.", 503
+        
     try:
         movies = mongo.db.movies.find().sort("title",1)
     except Exception as e:
-        print(f"Database error: {e}")
-        return "Database Connection Error.", 500
+        print(f"Database error on home route: {e}")
+        # If the database collection doesn't exist yet, this might throw an error.
+        return render_template_string(index_html, movies=[])
         
     return render_template_string(index_html, movies=movies)
 
 @app.route('/player/<movie_id>')
 def player(movie_id):
+    if mongo is None:
+        return "Database not available.", 503
+        
     try:
-        # Validate ID format before querying
         if not ObjectId.is_valid(movie_id):
             return "Invalid Movie ID format", 400
             
@@ -191,18 +203,22 @@ def login():
         username = request.form.get("username")
         password = request.form.get("password")
         
-        # Checking against Environment Variables (ADMIN_USER, ADMIN_PASS)
         if username == ADMIN_USER and password == ADMIN_PASS:
+            session.permanent = True
             session['admin']=True
             return redirect(url_for("admin_panel"))
         else:
-            return "Login Failed"
+            return render_template_string(login_html) + "<p style='color:red;'>Login Failed</p>"
     return render_template_string(login_html)
 
 @app.route('/admin')
 def admin_panel():
     if 'admin' not in session:
         return redirect(url_for("login"))
+    
+    if mongo is None:
+        return "Database not available for Admin.", 503
+        
     movies = mongo.db.movies.find().sort("title",1)
     return render_template_string(admin_html, movies=movies)
 
@@ -210,14 +226,15 @@ def admin_panel():
 def add_movie():
     if 'admin' not in session:
         return redirect(url_for("login"))
-        
+    if mongo is None:
+        return "Database not available.", 503
+
     title = request.form.get("title")
     description = request.form.get("description")
     poster = request.form.get("poster")
     video_link = request.form.get("video_link")
     language = request.form.get("language")
     
-    # Basic input validation
     if not title or not video_link:
         return "Title and Video Link are required fields.", 400
 
@@ -234,12 +251,18 @@ def add_movie():
 def delete_movie(movie_id):
     if 'admin' not in session:
         return redirect(url_for("login"))
-        
+    if mongo is None:
+        return "Database not available.", 503
+
     try:
         if not ObjectId.is_valid(movie_id):
             return "Invalid Movie ID format for deletion", 400
             
-        mongo.db.movies.delete_one({"_id": ObjectId(movie_id)})
+        result = mongo.db.movies.delete_one({"_id": ObjectId(movie_id)})
+        if result.deleted_count == 0:
+            print(f"Movie ID {movie_id} not found.")
+            # Optionally, you could return "Movie not found" here.
+        
     except Exception as e:
         print(f"Deletion error: {e}")
         return "Could not delete movie due to server error.", 500
@@ -252,5 +275,4 @@ def logout():
     return redirect(url_for("login"))
 
 # ----------------- Vercel EXECUTION READY -----------------
-# Vercel needs the 'app' variable, but NO app.run() call.
-# The code ends here.
+# No app.run() for Vercel
