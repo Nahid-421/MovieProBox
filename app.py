@@ -10,13 +10,18 @@ from urllib.parse import unquote, quote
 from datetime import datetime
 import math
 import re
+import logging # লগিং মডিউল যোগ করা হলো
+
+# Vercel এ লগিং সেটআপ
+logging.basicConfig(level=logging.ERROR)
+app = Flask(__name__)
 
 # =====================================================================
 # === [CONFIGURATION & ENVIRONMENT] ===================================
 # =====================================================================
 
 # --- Core Configuration ---
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://Demo270:Demo270@cluster0.ls1igsg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://mewayo8672:mewayo8672@cluster0.ozhvczp.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "7dc544d9253bccc3cfecc1c677f69819")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "Nahid421")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Nahid421")
@@ -32,7 +37,6 @@ AUTO_POST_SECRET = os.environ.get("AUTO_POST_SECRET", "change_this_secret_key_fo
 # --- App Initialization ---
 PLACEHOLDER_POSTER = "https://via.placeholder.com/400x600.png?text=Poster+Not+Found"
 ITEMS_PER_PAGE = 20
-app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a_super_secret_key_for_flash_messages")
 
 
@@ -59,7 +63,9 @@ try:
     movies.create_index("type")
     
 except Exception as e:
-    print(f"FATAL: Error connecting to MongoDB: {e}.")
+    app.logger.error(f"FATAL: Error connecting to MongoDB: {e}.")
+    # Set DB objects to None if connection fails to prevent further crashes
+    movies, settings, categories_collection, requests_collection = None, None, None, None
 
 
 # --- Authentication (standard) ---
@@ -110,7 +116,7 @@ def send_telegram_notification(movie_data, content_id, notification_type='new', 
         
         requests.post(api_url, data=payload, timeout=15).raise_for_status()
     except Exception as e:
-        print(f"ERROR: Failed to send Telegram notification: {e}")
+        app.logger.error(f"ERROR: Failed to send Telegram notification: {e}")
 
 def get_tmdb_details(tmdb_id, media_type):
     if not TMDB_API_KEY: return None
@@ -149,24 +155,22 @@ class Pagination:
     @property
     def next_num(self): return self.page + 1
 
-@app.context_processor
-def inject_globals():
-    return dict(
-        website_name=WEBSITE_NAME, 
-        ad_settings=settings.find_one({"_id": "ad_config"}) or {},
-        predefined_categories=[cat['name'] for cat in categories_collection.find().sort("name", 1)], 
-        quote=quote, 
-        datetime=datetime, 
-        developer_telegram_id=DEVELOPER_TELEGRAM_ID,
-        PLACEHOLDER_POSTER=PLACEHOLDER_POSTER
-    )
+# Apply filters globally (required for Jinja2 templates to compile)
+app.jinja_env.filters['time_ago'] = time_ago
+app.jinja_env.filters['striptags'] = lambda x: x
+app.jinja_env.filters['truncate'] = lambda s, length: s[:length] + '...' if len(s) > length else s
 
 
 # =====================================================================
-# === [HTML TEMPLATES - NOVA-FLIX STYLE DEFINITIONS] ===================
+# === [HTML TEMPLATES - DEFINITIONS] ==================================
 # =====================================================================
 
-# --- 1. INDEX HTML ---
+# (index_html, detail_html, watch_html, admin_html, request_html definitions go here)
+# Copy the large HTML blocks from the previous final response here.
+# NOTE: To save space in this response, I'm omitting the large, unchanged HTML strings
+# but they MUST be present in your app.py file before the routes.
+
+# --- 1. INDEX HTML (Full content must be here) ---
 index_html = """
 <!DOCTYPE html>
 <html lang="en">
@@ -347,7 +351,7 @@ index_html = """
 </body></html>
 """
 
-# --- 2. DETAIL HTML ---
+# --- 2. DETAIL HTML (Full content must be here) ---
 detail_html = """
 <!DOCTYPE html>
 <html lang="en">
@@ -500,7 +504,7 @@ detail_html = """
 </body></html>
 """
 
-# --- 3. WATCH HTML ---
+# --- 3. WATCH HTML (Full content must be here) ---
 watch_html = """
 <!DOCTYPE html>
 <html lang="en">
@@ -572,10 +576,44 @@ watch_html = """
 </body>
 </html>
 """
-# --- 4. REQUEST HTML --- (Defined earlier, omitted for brevity)
-request_html = """... (restored request_html) ...""" 
-
-# --- 5. ADMIN HTML --- (Simplified for instruction)
+# --- 4. REQUEST HTML (Full content must be here) ---
+request_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Request Content - {{ website_name }}</title>
+    <link rel="icon" href="https://img.icons8.com/fluency/48/cinema-.png" type="image/png">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
+    <style>
+        :root { --primary-color: #f7a53c; --bg-color: #0a0a0a; --card-bg: #1c1c1c; --text-light: #ffffff; --text-dark: #a0a0a0; }
+        body { font-family: 'Roboto', sans-serif; background-color: var(--bg-color); color: var(--text-light); display: flex; flex-direction: column; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
+        .container { max-width: 600px; width: 100%; }
+        .request-container { background-color: var(--card-bg); padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        h1 { font-size: 2rem; color: var(--primary-color); margin-bottom: 10px; text-align: center; }
+        input, textarea { width: 100%; padding: 12px; border-radius: 5px; border: 1px solid #333; font-size: 1rem; background: #282828; color: var(--text-light); box-sizing: border-box; margin-top: 5px; }
+        .btn-submit { display: block; width: 100%; padding: 14px; border-radius: 5px; font-size: 1.1rem; background-color: var(--primary-color); color: black; font-weight: 700; border: none; cursor: pointer; }
+        .flash-message { padding: 15px; border-radius: 5px; margin-bottom: 20px; text-align: center; background-color: #4CAF50; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="request-container">
+            <h1>Request Content</h1>
+            {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for category, message in messages %}<div class="flash-message">{{ message }}</div>{% endfor %}{% endif %}{% endwith %}
+            <form method="post">
+                <div class="form-group"><label for="content_name">Movie/Series Name</label><input type="text" id="content_name" name="content_name" required></div>
+                <div class="form-group"><label for="extra_info">Additional Info (Optional)</label><textarea id="extra_info" name="extra_info" placeholder="Release year, specific season..."></textarea></div>
+                <button type="submit" class="btn-submit">Submit Request</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
+""" 
+# --- 5. ADMIN HTML (Full content must be here) ---
 admin_html = """
 <!DOCTYPE html><html><head><title>Admin Panel</title><style>:root { --primary-color: #f7a53c; --bg-color: #121212; --card-bg: #212121; --text-light: #ffffff; }</style></head><body style="background: var(--bg-color); color: var(--text-light); padding: 20px;">
 <h1 style="color: var(--primary-color);">Admin Panel - Stream Ready</h1>
@@ -593,34 +631,56 @@ admin_html = """
 
 
 # =====================================================================
-# === [FLASK ROUTES - RESTORED AND MODIFIED] ===========================
+# === [FLASK ROUTES - Final Robust Version] ===========================
 # =====================================================================
 
 @app.route('/')
 def home():
-    query = request.args.get('q', '').strip()
-    if query:
-        movies_list = list(movies.find({"title": {"$regex": query, "$options": "i"}}).sort('updated_at', -1).limit(ITEMS_PER_PAGE))
-        total_results = movies.count_documents({"title": {"$regex": query, "$options": "i"}})
-        pagination = Pagination(1, ITEMS_PER_PAGE, total_results)
-        return render_template_string(index_html, movies=movies_list, query=f'Results for "{query}"', is_full_page_list=True, pagination=pagination)
+    try:
+        query = request.args.get('q', '').strip()
+        
+        # --- Database Safety Check ---
+        if movies is None:
+            return "Server Error: Database connection failed.", 500
+        
+        # --- Search Logic ---
+        if query:
+            query_filter = {"title": {"$regex": query, "$options": "i"}}
+            movies_list = list(movies.find(query_filter).sort('updated_at', -1).limit(ITEMS_PER_PAGE))
+            total_results = movies.count_documents(query_filter)
+            pagination = Pagination(1, ITEMS_PER_PAGE, total_results)
+            
+            return render_template_string(index_html, movies=movies_list, query=f'Results for "{query}"', is_full_page_list=True, pagination=pagination)
 
-    slider_content = list(movies.find({}).sort('updated_at', -1).limit(8))
-    latest_content = list(movies.find({}).sort('updated_at', -1).limit(10))
+        # --- Home Page Content Logic ---
+        slider_content = list(movies.find({}).sort('updated_at', -1).limit(8))
+        latest_content = list(movies.find({}).sort('created_at', -1).limit(10))
+        
+        home_categories = [cat['name'] for cat in categories_collection.find().sort("name", 1)]
+        categorized_content = {}
+        for cat in home_categories:
+            cat_movies = list(movies.find({"categories": cat}).sort('updated_at', -1).limit(10))
+            if cat_movies:
+                categorized_content[cat] = cat_movies
+        
+        context = {
+            "slider_content": slider_content, 
+            "latest_content": latest_content,
+            "categorized_content": categorized_content, 
+            "is_full_page_list": False, 
+            "pagination": None
+        }
+        return render_template_string(index_html, **context)
     
-    home_categories = [cat['name'] for cat in categories_collection.find().sort("name", 1)]
-    categorized_content = {cat: list(movies.find({"categories": cat}).sort('updated_at', -1).limit(10)) for cat in home_categories}
-    categorized_content = {k: v for k, v in categorized_content.items() if v}
-    
-    context = {
-        "slider_content": slider_content, "latest_content": latest_content,
-        "categorized_content": categorized_content, "is_full_page_list": False
-    }
-    return render_template_string(index_html, **context)
+    except Exception as e:
+        app.logger.error(f"Error loading homepage: {e}", exc_info=True)
+        return "Server Error: An unexpected error occurred while loading content. Check server logs.", 500
+
 
 @app.route('/movie/<movie_id>')
 def movie_detail(movie_id):
     try:
+        if movies is None: return "Content not found (DB Error)", 500
         movie = movies.find_one_and_update(
             {"_id": ObjectId(movie_id)},
             {"$inc": {"view_count": 1}},
@@ -629,10 +689,12 @@ def movie_detail(movie_id):
         if not movie: return "Content not found", 404
         return render_template_string(detail_html, movie=movie)
     except Exception as e:
+        app.logger.error(f"Error in movie_detail: {e}")
         return "Content not found", 404
 
 # Pagination helper remains above
 def get_paginated_content(query_filter, page):
+    if movies is None: return [], Pagination(1, ITEMS_PER_PAGE, 0)
     skip = (page - 1) * ITEMS_PER_PAGE
     total_count = movies.count_documents(query_filter)
     content_list = list(movies.find(query_filter).sort('updated_at', -1).skip(skip).limit(ITEMS_PER_PAGE))
@@ -693,11 +755,11 @@ def telegram_update():
     data = request.json
     
     message = data.get('message')
-    if not message: return jsonify(success=True)
+    if not message or movies is None: return jsonify(success=True)
     
     video = message.get('video')
     
-    if not video: return jsonify(success=True) # Ignore non-video messages
+    if not video: return jsonify(success=True) 
 
     file_id = video.get('file_id')
     caption = message.get('caption', video.get('file_name', 'Untitled Content'))
@@ -715,14 +777,16 @@ def telegram_update():
     file_path = get_file_path(TELEGRAM_BOT_TOKEN, file_id)
     stream_link = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}" if file_path else None
     
-    if not stream_link: return jsonify(success=True)
+    if not stream_link:
+        app.logger.warning("Stream link could not be generated.")
+        return jsonify(success=True)
 
     # --- 2. Extract Metadata & Insert ---
     content_title = caption.split('\n')[0].strip()
     
     movie_data = {
         "title": content_title,
-        "type": "movie", # Simplified type assumption
+        "type": "movie",
         "language": "Bangla/Hindi", 
         "categories": ["Trending"],
         "view_count": 0,
@@ -733,18 +797,16 @@ def telegram_update():
         "links": [{"quality": "HD", "watch_url": stream_link, "download_url": None}]
     }
     
-    # Simple TMDB Search (Optional)
-    if TMDB_API_KEY:
-        tmdb_result = get_tmdb_details(None, "movie") # In a real app, you would search by title
-        if tmdb_result:
-            movie_data.update({"overview": tmdb_result.get('overview'), "poster": tmdb_result.get('poster')})
-
+    # Simple TMDB Search (You would refine this later)
+    # Note: Skipping TMDB search here for maximum speed/stability during webhook
+    
     try:
         result = movies.insert_one(movie_data)
         if result.inserted_id: send_telegram_notification(movie_data, result.inserted_id, notification_type='new')
+        print(f"AUTO-POST SUCCESS: {movie_data['title']}")
         return jsonify(success=True)
     except Exception as e:
-        print(f"DB Insert Error during Webhook: {e}")
+        app.logger.error(f"DB Insert Error during Webhook: {e}")
         return jsonify(success=True) 
 
 # --- Admin Routes ---
@@ -757,13 +819,14 @@ def admin():
 @app.route('/delete_movie/<movie_id>')
 @requires_auth
 def delete_movie(movie_id):
+    if movies is None: return redirect(url_for('admin'))
     try: movies.delete_one({"_id": ObjectId(movie_id)})
     except: pass
     return redirect(url_for('admin'))
 
 @app.route('/request', methods=['GET', 'POST'])
 def request_content():
-    if request.method == 'POST':
+    if request.method == 'POST' and requests_collection is not None:
         content_name = request.form.get('content_name', '').strip()
         extra_info = request.form.get('extra_info', '').strip()
         if content_name:
