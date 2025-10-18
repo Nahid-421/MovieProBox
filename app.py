@@ -10,7 +10,7 @@ from urllib.parse import unquote, quote
 from datetime import datetime
 import math
 import re
-import logging # লগিং মডিউল যোগ করা হলো
+import logging
 
 # Vercel এ লগিং সেটআপ
 logging.basicConfig(level=logging.ERROR)
@@ -44,7 +44,9 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a_super_secret_key_for_flas
 # === [DB SETUP, AUTH & HELPERS] ======================================
 # =====================================================================
 
-# --- Database Connection ---
+# --- Database Connection (Protected) ---
+movies, settings, categories_collection, requests_collection, ott_collection = None, None, None, None, None
+
 try:
     client = MongoClient(MONGO_URI)
     db = client["movie_db"]
@@ -64,8 +66,6 @@ try:
     
 except Exception as e:
     app.logger.error(f"FATAL: Error connecting to MongoDB: {e}.")
-    # Set DB objects to None if connection fails to prevent further crashes
-    movies, settings, categories_collection, requests_collection = None, None, None, None
 
 
 # --- Authentication (standard) ---
@@ -79,7 +79,7 @@ def requires_auth(f):
         return f(*args, **kwargs)
     return decorated
 
-# --- Helper Functions ---
+# --- Helper Functions (standard) ---
 def format_series_info(episodes, season_packs):
     info_parts = []
     if episodes:
@@ -161,16 +161,33 @@ app.jinja_env.filters['striptags'] = lambda x: x
 app.jinja_env.filters['truncate'] = lambda s, length: s[:length] + '...' if len(s) > length else s
 
 
+@app.context_processor
+def inject_globals():
+    # --- Protected injection to prevent 'undefined' errors ---
+    ad_settings = {}
+    if settings is not None:
+        ad_settings = settings.find_one({"_id": "ad_config"}) or {}
+    
+    all_categories = []
+    if categories_collection is not None:
+        all_categories = [cat['name'] for cat in categories_collection.find().sort("name", 1)]
+    
+    return dict(
+        website_name=WEBSITE_NAME, 
+        ad_settings=ad_settings, 
+        predefined_categories=all_categories, 
+        quote=quote, 
+        datetime=datetime, 
+        developer_telegram_id=DEVELOPER_TELEGRAM_ID,
+        PLACEHOLDER_POSTER=PLACEHOLDER_POSTER
+    )
+
+
 # =====================================================================
 # === [HTML TEMPLATES - DEFINITIONS] ==================================
 # =====================================================================
 
-# (index_html, detail_html, watch_html, admin_html, request_html definitions go here)
-# Copy the large HTML blocks from the previous final response here.
-# NOTE: To save space in this response, I'm omitting the large, unchanged HTML strings
-# but they MUST be present in your app.py file before the routes.
-
-# --- 1. INDEX HTML (Full content must be here) ---
+# --- 1. INDEX HTML ---
 index_html = """
 <!DOCTYPE html>
 <html lang="en">
@@ -637,13 +654,10 @@ admin_html = """
 @app.route('/')
 def home():
     try:
+        if movies is None: return "Server Error: Database connection failed.", 500
+        
         query = request.args.get('q', '').strip()
         
-        # --- Database Safety Check ---
-        if movies is None:
-            return "Server Error: Database connection failed.", 500
-        
-        # --- Search Logic ---
         if query:
             query_filter = {"title": {"$regex": query, "$options": "i"}}
             movies_list = list(movies.find(query_filter).sort('updated_at', -1).limit(ITEMS_PER_PAGE))
@@ -652,7 +666,6 @@ def home():
             
             return render_template_string(index_html, movies=movies_list, query=f'Results for "{query}"', is_full_page_list=True, pagination=pagination)
 
-        # --- Home Page Content Logic ---
         slider_content = list(movies.find({}).sort('updated_at', -1).limit(8))
         latest_content = list(movies.find({}).sort('created_at', -1).limit(10))
         
@@ -692,7 +705,6 @@ def movie_detail(movie_id):
         app.logger.error(f"Error in movie_detail: {e}")
         return "Content not found", 404
 
-# Pagination helper remains above
 def get_paginated_content(query_filter, page):
     if movies is None: return [], Pagination(1, ITEMS_PER_PAGE, 0)
     skip = (page - 1) * ITEMS_PER_PAGE
@@ -747,7 +759,8 @@ def set_webhook():
     if response.ok and response.json().get('ok'):
         return f"SUCCESS: Webhook set to: {webhook_url}", 200
     else:
-        return f"FAILURE: Failed to set webhook. Response: {response.text}", 500
+        app.logger.error(f"Webhook setting failed: {response.text}")
+        return f"FAILURE: Failed to set webhook. Check BOT_TOKEN and WEBSITE_URL.", 500
 
 
 @app.route('/telegram_update', methods=['POST'])
@@ -796,9 +809,6 @@ def telegram_update():
         "updated_at": datetime.utcnow(),
         "links": [{"quality": "HD", "watch_url": stream_link, "download_url": None}]
     }
-    
-    # Simple TMDB Search (You would refine this later)
-    # Note: Skipping TMDB search here for maximum speed/stability during webhook
     
     try:
         result = movies.insert_one(movie_data)
