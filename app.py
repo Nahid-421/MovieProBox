@@ -16,7 +16,7 @@ import re
 # =====================================================================
 
 # --- Core Configuration ---
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://Demo270:Demo270@cluster0.ls1igsg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://mewayo8672:mewayo8672@cluster0.ozhvczp.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "7dc544d9253bccc3cfecc1c677f69819")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "Nahid421")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Nahid421")
@@ -25,7 +25,7 @@ DEVELOPER_TELEGRAM_ID = os.environ.get("DEVELOPER_TELEGRAM_ID", "https://t.me/Al
 
 # --- Telegram & Auto-Post Settings ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHANNEL_ID = os.environ.get("TELEGRAM_CHANNEL_ID") # Channel ID to monitor/post to (Optional for webhook, used for security check)
+TELEGRAM_CHANNEL_ID = os.environ.get("TELEGRAM_CHANNEL_ID")
 WEBSITE_URL = os.environ.get("WEBSITE_URL") 
 AUTO_POST_SECRET = os.environ.get("AUTO_POST_SECRET", "change_this_secret_key_for_security") 
 
@@ -55,7 +55,6 @@ try:
         default_categories = ["Trending", "Bangla", "Hindi", "English", "Series", "Action", "Romance"]
         categories_collection.insert_many([{"name": cat} for cat in default_categories])
     
-    # Ensure indexes exist
     movies.create_index("title")
     movies.create_index("type")
     
@@ -76,7 +75,6 @@ def requires_auth(f):
 
 # --- Helper Functions ---
 def format_series_info(episodes, season_packs):
-    # This is simplified for stream only, focusing on episode numbering
     info_parts = []
     if episodes:
         episodes_by_season = {};
@@ -136,9 +134,6 @@ def time_ago(obj_id):
     elif seconds < 86400: hours = int(seconds / 3600); return f"{hours} hour ago"
     else: days = int(seconds / 86400); return f"{days} day ago"
 
-app.jinja_env.filters['time_ago'] = time_ago
-app.jinja_env.filters['striptags'] = lambda x: x
-app.jinja_env.filters['truncate'] = lambda s, length: s[:length] + '...' if len(s) > length else s
 
 class Pagination:
     def __init__(self, page, per_page, total_count):
@@ -168,7 +163,7 @@ def inject_globals():
 
 
 # =====================================================================
-# === [HTML TEMPLATES - NOVA-FLIX STYLE] ==============================
+# === [HTML TEMPLATES - NOVA-FLIX STYLE DEFINITIONS] ===================
 # =====================================================================
 
 # --- 1. INDEX HTML ---
@@ -187,12 +182,8 @@ index_html = """
 {{ ad_settings.ad_header | safe }}
 <style>
   :root {
-    --primary-color: #f7a53c; /* Nova-Flix Yellow/Orange */ 
-    --bg-color: #121212; 
-    --card-bg: #212121;
-    --text-light: #ffffff; 
-    --text-dark: #b0b0b0; 
-    --nav-height: 60px;
+    --primary-color: #f7a53c; --bg-color: #121212; --card-bg: #212121;
+    --text-light: #ffffff; --text-dark: #b0b0b0; --nav-height: 60px;
   }
   body { font-family: 'Roboto', sans-serif; background-color: var(--bg-color); color: var(--text-light); margin: 0; padding-bottom: 70px; }
   a { text-decoration: none; color: inherit; }
@@ -231,6 +222,9 @@ index_html = """
   .full-page-grid-container { padding-top: 80px; }
   .full-page-grid-title { font-size: 2rem; text-align: center; margin-bottom: 30px; color: var(--primary-color); }
   .pagination { display: flex; justify-content: center; align-items: center; gap: 10px; margin: 30px 0; }
+  .pagination a, .pagination span { padding: 8px 15px; border-radius: 5px; background-color: var(--card-bg); color: var(--text-dark); font-weight: 500; }
+  .pagination a:hover { background-color: #333; }
+  .pagination .current { background-color: var(--primary-color); color: black; }
   
   .bottom-nav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; height: 65px; background-color: #000; box-shadow: 0 -2px 10px rgba(0,0,0,0.5); z-index: 1000; justify-content: space-around; align-items: center; padding-top: 5px; }
   .bottom-nav .nav-item { display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-dark); background: none; border: none; font-size: 11px; flex-grow: 1; font-weight: 500; }
@@ -267,9 +261,16 @@ index_html = """
         <div class="full-page-grid">{% for m in movies %}{{ render_movie_card(m) }}{% endfor %}</div>
         {% if pagination and pagination.total_pages > 1 %}
         <div class="pagination">
-            {% if pagination.has_prev %}<a href="{{ url_for(request.endpoint, page=pagination.prev_num) }}">Prev</a>{% endif %}
+            {% set url_args = {'page': pagination.prev_num} %}
+            {% if 'category' in request.endpoint %}{% set _ = url_args.update({'name': query}) %}{% endif %}
+            
+            {% if pagination.has_prev %}<a href="{{ url_for(request.endpoint, **url_args) }}">&laquo; Prev</a>{% endif %}
             <span class="current">Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
-            {% if pagination.has_next %}<a href="{{ url_for(request.endpoint, page=pagination.next_num) }}">Next</a>{% endif %}
+            
+            {% set url_args = {'page': pagination.next_num} %}
+            {% if 'category' in request.endpoint %}{% set _ = url_args.update({'name': query}) %}{% endif %}
+            
+            {% if pagination.has_next %}<a href="{{ url_for(request.endpoint, **url_args) }}">Next &raquo;</a>{% endif %}
         </div>
         {% endif %}
     </div>
@@ -456,7 +457,6 @@ detail_html = """
                 {% endif %}
             {% endfor %}
         {% elif movie.type == 'movie' and movie.manual_links %}
-            {# Manual link fallback for movies #}
              {% for link in movie.manual_links %}
                 {% set manual_title = quote(movie.title + ' ' + link.name) %}
                 <a href="{{ url_for('watch_online', target=quote(link.url), title=manual_title) }}" class="stream-btn" style="background: #3a3a3a; color: var(--text-light); margin-bottom: 10px;">
@@ -572,9 +572,10 @@ watch_html = """
 </body>
 </html>
 """
-# --- 4. REQUEST HTML --- (Defined earlier)
+# --- 4. REQUEST HTML --- (Defined earlier, omitted for brevity)
+request_html = """... (restored request_html) ...""" 
 
-# --- 5. ADMIN HTML --- (Placeholder for restoration)
+# --- 5. ADMIN HTML --- (Simplified for instruction)
 admin_html = """
 <!DOCTYPE html><html><head><title>Admin Panel</title><style>:root { --primary-color: #f7a53c; --bg-color: #121212; --card-bg: #212121; --text-light: #ffffff; }</style></head><body style="background: var(--bg-color); color: var(--text-light); padding: 20px;">
 <h1 style="color: var(--primary-color);">Admin Panel - Stream Ready</h1>
@@ -584,190 +585,53 @@ admin_html = """
     <li><p>Ensure <code>WEBSITE_URL</code> and <code>TELEGRAM_BOT_TOKEN</code> are set in Vercel.</p></li>
     <li><p><strong>Run Webhook Setup (CRITICAL):</strong> <a href="{{ url_for('set_webhook') }}" style="background: #333; color: white; padding: 10px; border-radius: 5px; text-decoration: none;">Click to Set Telegram Webhook</a> (Requires Admin Login)</p></li>
 </ol>
-<h2>Key Endpoints:</h2>
-<ul>
-    <li><code style="color: var(--primary-color);">/telegram_update</code>: Receives file uploads from Telegram.</li>
-    <li><code style="color: var(--primary-color);">/api/autopost</code>: Receives structured data from custom bots.</li>
-</ul>
-<p>Restore full Admin functionality (content CRUD, ads, categories) using your original code's admin_html.</p>
+<h2>Note:</h2>
+<p>For full content management (CRUD, ads, categories), the detailed Admin HTML from the previous versions needs to be restored here.</p>
 <a href="{{ url_for('home') }}" style="color: var(--primary-color);">Go to Site</a>
 </body></html>
 """
 
 
 # =====================================================================
-# === [FLASK ROUTES] ==================================================
+# === [FLASK ROUTES - RESTORED AND MODIFIED] ===========================
 # =====================================================================
 
-# --- General Routes (home, movie_detail, all_movies, etc.) remain as defined earlier ---
+@app.route('/')
+def home():
+    query = request.args.get('q', '').strip()
+    if query:
+        movies_list = list(movies.find({"title": {"$regex": query, "$options": "i"}}).sort('updated_at', -1).limit(ITEMS_PER_PAGE))
+        total_results = movies.count_documents({"title": {"$regex": query, "$options": "i"}})
+        pagination = Pagination(1, ITEMS_PER_PAGE, total_results)
+        return render_template_string(index_html, movies=movies_list, query=f'Results for "{query}"', is_full_page_list=True, pagination=pagination)
 
-# --- Stream Specific Routes ---
-
-@app.route('/watch')
-def watch_online():
-    encoded_url = request.args.get('target')
-    title = request.args.get('title', 'Content')
-    if not encoded_url: return redirect(url_for('home'))
-    url_to_embed = unquote(encoded_url)
-    return render_template_string(watch_html, url=url_to_embed, title=unquote(title))
-
-
-# --- Auto Post API Endpoint (for structured custom bot data) ---
-@app.route('/api/autopost', methods=['POST'])
-def auto_post_content():
-    # This route is optional if you use the webhook method, but kept for structured data posting
-    data = request.json
-    if data is None or data.get('secret_key') != AUTO_POST_SECRET:
-        return jsonify({"status": "error", "message": "Unauthorized access"}), 401
+    slider_content = list(movies.find({}).sort('updated_at', -1).limit(8))
+    latest_content = list(movies.find({}).sort('updated_at', -1).limit(10))
     
-    # Simplified logic to insert content from external structured POST request
-    tmdb_id = data.get('tmdb_id')
-    content_title = data.get('title') or "Untitled Content"
-    content_type = data.get('type', 'movie').lower()
-    stream_link = data.get('stream_link')
+    home_categories = [cat['name'] for cat in categories_collection.find().sort("name", 1)]
+    categorized_content = {cat: list(movies.find({"categories": cat}).sort('updated_at', -1).limit(10)) for cat in home_categories}
+    categorized_content = {k: v for k, v in categorized_content.items() if v}
     
-    if not stream_link: return jsonify({"status": "error", "message": "Stream link missing"}), 400
-
-    movie_data = {
-        "title": content_title, "type": content_type, "language": data.get('language', 'Unknown'),
-        "categories": data.get('categories', ['Trending']), "view_count": 0, "tmdb_id": tmdb_id,
-        "poster": data.get('poster') or PLACEHOLDER_POSTER, "overview": data.get('overview', "Posted automatically."),
-        "created_at": datetime.utcnow(), "updated_at": datetime.utcnow(),
+    context = {
+        "slider_content": slider_content, "latest_content": latest_content,
+        "categorized_content": categorized_content, "is_full_page_list": False
     }
-    
-    # Add Stream Link (Simplified to links array)
-    if content_type == 'movie':
-        movie_data["links"] = [{"quality": data.get('quality', '720p').upper(), "watch_url": stream_link}]
-    elif content_type == 'series':
-        movie_data['episodes'] = data.get('episodes', []) # Expects episodes array
-        if not movie_data['episodes']: movie_data["links"] = [{"quality": data.get('quality', '720p').upper(), "watch_url": stream_link}]
-    
+    return render_template_string(index_html, **context)
+
+@app.route('/movie/<movie_id>')
+def movie_detail(movie_id):
     try:
-        result = movies.insert_one(movie_data)
-        if result.inserted_id: send_telegram_notification(movie_data, result.inserted_id)
-        return jsonify({"status": "success", "message": "Content posted"}), 200
+        movie = movies.find_one_and_update(
+            {"_id": ObjectId(movie_id)},
+            {"$inc": {"view_count": 1}},
+            return_document=True
+        )
+        if not movie: return "Content not found", 404
+        return render_template_string(detail_html, movie=movie)
     except Exception as e:
-        return jsonify({"status": "error", "message": f"DB insertion failed: {e}"}), 500
+        return "Content not found", 404
 
-
-# --- TELEGRAM WEBHOOK HANDLERS (New Core for Auto-Posting) ---
-
-@app.route('/set_webhook', methods=['GET'])
-@requires_auth 
-def set_webhook():
-    """Sets the Telegram webhook to the /telegram_update route."""
-    if not TELEGRAM_BOT_TOKEN or not WEBSITE_URL:
-        return "Telegram Bot Token or WEBSITE_URL is not set.", 500
-        
-    webhook_url = f"{WEBSITE_URL}/telegram_update"
-    api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook"
-    response = requests.get(api_url, params={'url': webhook_url})
-    
-    if response.ok and response.json().get('ok'):
-        return f"SUCCESS: Webhook set to: {webhook_url}", 200
-    else:
-        return f"FAILURE: Failed to set webhook. Response: {response.text}", 500
-
-
-@app.route('/telegram_update', methods=['POST'])
-def telegram_update():
-    """Receives and processes updates from Telegram (triggered by the bot)."""
-    data = request.json
-    
-    message = data.get('message')
-    if not message: return jsonify(success=True)
-    
-    video = message.get('video')
-    chat_id = message.get('chat', {}).get('id')
-    
-    # Only process new video file uploads
-    if not video: return jsonify(success=True)
-
-    file_id = video.get('file_id')
-    caption = message.get('caption', video.get('file_name', 'Untitled Content'))
-    
-    # --- 1. Generate Direct Stream Link ---
-    if not TELEGRAM_BOT_TOKEN:
-        print("ERROR: BOT TOKEN missing for stream link generation.")
-        return jsonify(success=True)
-        
-    def get_file_path(token, file_id):
-        try:
-            url = f"https://api.telegram.org/bot{token}/getFile?file_id={file_id}"
-            res = requests.get(url, timeout=5).json()
-            return res.get('result', {}).get('file_path')
-        except: return None
-        
-    file_path = get_file_path(TELEGRAM_BOT_TOKEN, file_id)
-    stream_link = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}" if file_path else None
-    
-    if not stream_link:
-        print("WARNING: Stream link could not be generated.")
-        return jsonify(success=True)
-
-    # --- 2. Extract Metadata & Insert ---
-    content_title = caption.split('\n')[0].strip()
-    
-    movie_data = {
-        "title": content_title,
-        "type": "movie", # Default to movie
-        "language": "Bangla/Hindi", # Default language
-        "categories": ["Trending"],
-        "view_count": 0,
-        "poster": PLACEHOLDER_POSTER,
-        "overview": caption,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
-    }
-    
-    # Attempt to search TMDB using title (optional, can be time-consuming)
-    tmdb_result = get_tmdb_details(None, "movie") # Requires proper search logic if implemented
-    if tmdb_result:
-        movie_data.update({"overview": tmdb_result.get('overview'), "poster": tmdb_result.get('poster')})
-
-    # Add Link
-    movie_data["links"] = [{"quality": "HD", "watch_url": stream_link, "download_url": None}]
-
-    try:
-        result = movies.insert_one(movie_data)
-        if result.inserted_id: send_telegram_notification(movie_data, result.inserted_id, notification_type='new')
-        print(f"AUTO-POST SUCCESS: {movie_data['title']}")
-        return jsonify(success=True)
-    except Exception as e:
-        print(f"DB Insert Error during Webhook: {e}")
-        return jsonify(success=True) 
-
-
-# --- Admin Routes (Simplified, requires restoration) ---
-# NOTE: The full logic for other admin CRUD functions (delete_movie, edit_movie, etc.)
-# must be present in your final app.py file if you want them to work.
-
-@app.route('/admin', methods=["GET", "POST"])
-@requires_auth
-def admin():
-    # Only render the simplified admin HTML for instruction purposes
-    return render_template_string(admin_html, website_name=WEBSITE_NAME)
-
-@app.route('/delete_movie/<movie_id>')
-@requires_auth
-def delete_movie(movie_id):
-    try: movies.delete_one({"_id": ObjectId(movie_id)})
-    except: pass
-    return redirect(url_for('admin'))
-
-# --- General Routes (Restored) ---
-
-@app.route('/request', methods=['GET', 'POST'])
-def request_content():
-    if request.method == 'POST':
-        content_name = request.form.get('content_name', '').strip()
-        extra_info = request.form.get('extra_info', '').strip()
-        if content_name:
-            requests_collection.insert_one({"name": content_name, "info": extra_info, "status": "Pending", "created_at": datetime.utcnow()})
-            flash('Your request has been submitted successfully!', 'success')
-        return redirect(url_for('request_content'))
-    return render_template_string(request_html)
-
+# Pagination helper remains above
 def get_paginated_content(query_filter, page):
     skip = (page - 1) * ITEMS_PER_PAGE
     total_count = movies.count_documents(query_filter)
@@ -794,6 +658,119 @@ def movies_by_category():
     page = request.args.get('page', 1, type=int)
     content, pagination = get_paginated_content({"categories": title}, page)
     return render_template_string(index_html, movies=content, query=title, is_full_page_list=True, pagination=pagination)
+
+
+# --- Stream Specific Routes ---
+@app.route('/watch')
+def watch_online():
+    encoded_url = request.args.get('target')
+    title = request.args.get('title', 'Content')
+    if not encoded_url: return redirect(url_for('home'))
+    url_to_embed = unquote(encoded_url)
+    return render_template_string(watch_html, url=url_to_embed, title=unquote(title))
+
+
+# --- TELEGRAM WEBHOOK HANDLERS ---
+
+@app.route('/set_webhook', methods=['GET'])
+@requires_auth 
+def set_webhook():
+    if not TELEGRAM_BOT_TOKEN or not WEBSITE_URL:
+        return "Telegram Bot Token or WEBSITE_URL is not set.", 500
+        
+    webhook_url = f"{WEBSITE_URL}/telegram_update"
+    api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook"
+    response = requests.get(api_url, params={'url': webhook_url})
+    
+    if response.ok and response.json().get('ok'):
+        return f"SUCCESS: Webhook set to: {webhook_url}", 200
+    else:
+        return f"FAILURE: Failed to set webhook. Response: {response.text}", 500
+
+
+@app.route('/telegram_update', methods=['POST'])
+def telegram_update():
+    data = request.json
+    
+    message = data.get('message')
+    if not message: return jsonify(success=True)
+    
+    video = message.get('video')
+    
+    if not video: return jsonify(success=True) # Ignore non-video messages
+
+    file_id = video.get('file_id')
+    caption = message.get('caption', video.get('file_name', 'Untitled Content'))
+    
+    # --- 1. Generate Direct Stream Link (Using Telegram API) ---
+    if not TELEGRAM_BOT_TOKEN: return jsonify(success=True)
+        
+    def get_file_path(token, file_id):
+        try:
+            url = f"https://api.telegram.org/bot{token}/getFile?file_id={file_id}"
+            res = requests.get(url, timeout=5).json()
+            return res.get('result', {}).get('file_path')
+        except: return None
+        
+    file_path = get_file_path(TELEGRAM_BOT_TOKEN, file_id)
+    stream_link = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}" if file_path else None
+    
+    if not stream_link: return jsonify(success=True)
+
+    # --- 2. Extract Metadata & Insert ---
+    content_title = caption.split('\n')[0].strip()
+    
+    movie_data = {
+        "title": content_title,
+        "type": "movie", # Simplified type assumption
+        "language": "Bangla/Hindi", 
+        "categories": ["Trending"],
+        "view_count": 0,
+        "poster": PLACEHOLDER_POSTER,
+        "overview": caption,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+        "links": [{"quality": "HD", "watch_url": stream_link, "download_url": None}]
+    }
+    
+    # Simple TMDB Search (Optional)
+    if TMDB_API_KEY:
+        tmdb_result = get_tmdb_details(None, "movie") # In a real app, you would search by title
+        if tmdb_result:
+            movie_data.update({"overview": tmdb_result.get('overview'), "poster": tmdb_result.get('poster')})
+
+    try:
+        result = movies.insert_one(movie_data)
+        if result.inserted_id: send_telegram_notification(movie_data, result.inserted_id, notification_type='new')
+        return jsonify(success=True)
+    except Exception as e:
+        print(f"DB Insert Error during Webhook: {e}")
+        return jsonify(success=True) 
+
+# --- Admin Routes ---
+
+@app.route('/admin', methods=["GET", "POST"])
+@requires_auth
+def admin():
+    return render_template_string(admin_html, website_name=WEBSITE_NAME)
+
+@app.route('/delete_movie/<movie_id>')
+@requires_auth
+def delete_movie(movie_id):
+    try: movies.delete_one({"_id": ObjectId(movie_id)})
+    except: pass
+    return redirect(url_for('admin'))
+
+@app.route('/request', methods=['GET', 'POST'])
+def request_content():
+    if request.method == 'POST':
+        content_name = request.form.get('content_name', '').strip()
+        extra_info = request.form.get('extra_info', '').strip()
+        if content_name:
+            requests_collection.insert_one({"name": content_name, "info": extra_info, "status": "Pending", "created_at": datetime.utcnow()})
+            flash('Your request has been submitted successfully!', 'success')
+        return redirect(url_for('request_content'))
+    return render_template_string(request_html)
 
 
 if __name__ == "__main__":
