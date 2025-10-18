@@ -187,6 +187,9 @@ def inject_globals():
 # === [HTML TEMPLATES - DEFINITIONS] ==================================
 # =====================================================================
 
+# (index_html, detail_html, watch_html, admin_html, request_html definitions go here)
+# NOTE: Using simplified admin_html for now, but extending other necessary templates.
+
 # --- 1. INDEX HTML ---
 index_html = """
 <!DOCTYPE html>
@@ -819,7 +822,7 @@ def telegram_update():
         app.logger.error(f"DB Insert Error during Webhook: {e}")
         return jsonify(success=True) 
 
-# --- Admin Routes ---
+# --- Admin Routes (Simplified, functional for demonstration) ---
 
 @app.route('/admin', methods=["GET", "POST"])
 @requires_auth
